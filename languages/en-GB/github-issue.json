@@ -31,5 +31,5 @@
 	"admin.status-expires": "expires on %1 (%2 days left)",
 	"admin.status-no-expiry": "no expiry",
 	"admin.status-expired": "The token expired on %1 — creating issues is blocked until a new token is saved.",
-	"admin.privilege-help": "Who can use the button is controlled by the regular category privileges: grant the \"Open GitHub issue from post\" privilege to groups or individual users under Manage → Privileges."
+	"admin.privilege-help": "Who can use the button is controlled by the regular privileges system: under Manage → Privileges select \"Global Privileges\", click the \"Other\" filter, and grant the \"Open GitHub issue from post\" privilege to groups or individual users."
 }

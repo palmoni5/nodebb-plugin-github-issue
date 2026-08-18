@@ -8,7 +8,7 @@
   "templates": "./templates",
   "hooks": [
     { "hook": "static:app.load", "method": "init" },
-    { "hook": "static:privileges.categories.init", "method": "addPrivilege" },
+    { "hook": "static:privileges.global.init", "method": "addPrivilege" },
     { "hook": "filter:post.tools", "method": "addPostTool" },
     { "hook": "filter:admin.header.build", "method": "addAdminNavigation" }
   ],

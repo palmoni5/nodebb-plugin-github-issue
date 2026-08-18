@@ -110,8 +110,11 @@ plugin.init = async function ({ router }) {
 			if (title.length > 256 || body.length > 65536) {
 				throw new Error('[[error:invalid-data]]');
 			}
-			const allowed = await privileges.posts.can(PRIVILEGE, pid, socket.uid);
-			if (!allowed) {
+			const [allowed, canRead] = await Promise.all([
+				privileges.global.can(PRIVILEGE, socket.uid),
+				privileges.posts.can('topics:read', pid, socket.uid),
+			]);
+			if (!allowed || !canRead) {
 				throw new Error('[[error:no-privileges]]');
 			}
 			const config = await getConfig();
@@ -180,7 +183,7 @@ plugin.addPostTool = async function (data) {
 	if (!config.token || !config.repo) {
 		return data;
 	}
-	const allowed = await privileges.posts.can(PRIVILEGE, data.pid, data.uid);
+	const allowed = await privileges.global.can(PRIVILEGE, data.uid);
 	if (allowed) {
 		data.tools.push({
 			action: 'post/github-issue',
