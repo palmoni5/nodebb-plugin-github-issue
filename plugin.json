@@ -1,0 +1,21 @@
+{
+  "id": "nodebb-plugin-github-issue",
+  "name": "GitHub Issue from Post",
+  "description": "Adds a post-menu button that opens a GitHub issue from the post content, with a write-only token, token expiry tracking and admin notifications",
+  "url": "https://github.com/palmoni5/nodebb-plugin-github-issue",
+  "library": "./library.js",
+  "languages": "./languages",
+  "templates": "./templates",
+  "hooks": [
+    { "hook": "static:app.load", "method": "init" },
+    { "hook": "static:privileges.categories.init", "method": "addPrivilege" },
+    { "hook": "filter:post.tools", "method": "addPostTool" },
+    { "hook": "filter:admin.header.build", "method": "addAdminNavigation" }
+  ],
+  "modules": {
+    "../admin/plugins/github-issue.js": "static/lib/admin.js"
+  },
+  "scripts": [
+    "static/lib/client.js"
+  ]
+}
