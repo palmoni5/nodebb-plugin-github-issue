@@ -14,13 +14,21 @@ $(document).ready(function () {
 			return;
 		}
 		require(['api', 'bootbox', 'alerts', 'translator'], function (api, bootbox, alerts, translator) {
-			api.get('/posts/' + encodeURIComponent(pid) + '/raw', {}).then(function (data) {
-				openDialog(pid, (data && data.content) || '', bootbox, alerts, translator);
+			const existingPromise = new Promise(function (resolve) {
+				socket.emit('plugins.githubIssue.getExisting', { pid: pid }, function (err, existing) {
+					resolve(err ? null : existing);
+				});
+			});
+			Promise.all([
+				api.get('/posts/' + encodeURIComponent(pid) + '/raw', {}),
+				existingPromise,
+			]).then(function (results) {
+				openDialog(pid, (results[0] && results[0].content) || '', results[1], bootbox, alerts, translator);
 			}).catch(alerts.error);
 		});
 	});
 
-	function openDialog(pid, content, bootbox, alerts, translator) {
+	function openDialog(pid, content, existing, bootbox, alerts, translator) {
 		const keys = [
 			'[[github-issue:dialog-title]]',
 			'[[github-issue:issue-title]]',
@@ -28,6 +36,7 @@ $(document).ready(function () {
 			'[[github-issue:submit]]',
 			'[[modules:bootbox.cancel]]',
 			'[[github-issue:created]]',
+			'[[github-issue:already-opened]]',
 		];
 		Promise.all(keys.map(function (key) {
 			return new Promise(function (resolve) {
@@ -39,6 +48,17 @@ $(document).ready(function () {
 			const defaultBody = content + '\n\n---\n' + postUrl;
 
 			const form = $('<form class="github-issue-form"></form>');
+			if (existing && existing.url) {
+				const warning = $('<div class="alert alert-warning d-flex align-items-center gap-2 mb-3"></div>');
+				warning.append($('<i class="fa fa-exclamation-triangle"></i>'));
+				warning.append($('<span></span>').text(t[6]));
+				warning.append(
+					$('<a target="_blank" rel="noopener noreferrer"></a>')
+						.attr('href', existing.url)
+						.text('#' + existing.number)
+				);
+				form.append(warning);
+			}
 			const titleGroup = $('<div class="mb-3"></div>');
 			titleGroup.append($('<label class="form-label"></label>').text(t[1]));
 			const titleInput = $('<input type="text" class="form-control" maxlength="256">').val(defaultTitle);

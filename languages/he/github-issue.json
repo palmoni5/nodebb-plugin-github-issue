@@ -6,6 +6,7 @@
 	"issue-body": "תוכן ה-issue",
 	"submit": "צור issue",
 	"created": "ה-issue נוצר",
+	"already-opened": "שימו לב: כבר נפתח issue מהפוסט הזה:",
 	"notify.expiring": "הטוקן של תוסף \"issue בגיטהאב מפוסט\" יפוג בעוד %1 ימים",
 	"notify.expired": "הטוקן של תוסף \"issue בגיטהאב מפוסט\" פג תוקף",
 	"error.not-configured": "התוסף עדיין לא הוגדר (חסר מאגר או טוקן)",

@@ -1,6 +1,6 @@
 {
   "name": "nodebb-plugin-github-issue",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Adds a post-menu button that opens a GitHub issue from the post content, with a write-only token, token expiry tracking and admin notifications",
   "main": "library.js",
   "license": "MIT",

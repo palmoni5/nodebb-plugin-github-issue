@@ -14,6 +14,7 @@ const SocketAdmin = require.main.require('./src/socket.io/admin');
 const plugin = {};
 
 const CONFIG_KEY = 'plugin:github-issue:config';
+const PID_KEY_PREFIX = 'plugin:github-issue:pid:';
 const PRIVILEGE = 'plugin-github-issue';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WARN_BEFORE_DAYS = 10;
@@ -156,7 +157,34 @@ plugin.init = async function ({ router }) {
 				throw new Error(`[[github-issue:error.github, ${response.status}]]`);
 			}
 			const issue = await response.json();
+			await db.setObject(PID_KEY_PREFIX + pid, {
+				url: issue.html_url,
+				number: issue.number,
+				timestamp: Date.now(),
+				uid: socket.uid,
+			});
 			return { url: issue.html_url, number: issue.number };
+		},
+		getExisting: async (socket, data) => {
+			if (!socket.uid) {
+				throw new Error('[[error:not-logged-in]]');
+			}
+			const pid = data && data.pid;
+			if (!pid) {
+				throw new Error('[[error:invalid-data]]');
+			}
+			const [allowed, canRead] = await Promise.all([
+				privileges.global.can(PRIVILEGE, socket.uid),
+				privileges.posts.can('topics:read', pid, socket.uid),
+			]);
+			if (!allowed || !canRead) {
+				throw new Error('[[error:no-privileges]]');
+			}
+			const existing = await db.getObject(PID_KEY_PREFIX + pid);
+			if (!existing || !existing.url) {
+				return null;
+			}
+			return { url: existing.url, number: parseInt(existing.number, 10) || 0 };
 		},
 	};
 
