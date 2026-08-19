@@ -20,7 +20,7 @@
 	"admin.repo": "Repository",
 	"admin.repo-help": "Target repository in owner/repository format, e.g. NodeBB/NodeBB",
 	"admin.labels": "Labels",
-	"admin.labels-help": "Optional comma-separated labels added to every created issue",
+	"admin.labels-help": "Optional comma-separated labels added to every created issue. If the token's account has no push access to the repository, GitHub ignores labels sent over the API — in that case add the forum-labels workflow from the plugin's README to the repository and the labels will be applied by the repository itself.",
 	"admin.token": "GitHub token",
 	"admin.token-help": "Personal access token with permission to create issues. Write-only: it cannot be viewed after saving. Leave empty to keep the current token.",
 	"admin.expiry": "Token validity (days)",

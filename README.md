@@ -17,3 +17,49 @@ Adds an "Open GitHub issue" item to the post options menu. Authorized users can 
 3. Grant the privilege in Manage → Privileges → Global Privileges.
 
 The token needs the `issues: write` (fine-grained) or `repo`/`public_repo` (classic) scope.
+
+## Labels with a token that has no push access
+
+GitHub only honours the `labels` field of the create-issue API when the token's account has push/triage access to the repository — otherwise the labels are **silently dropped**. To make labels work with an unprivileged token, the plugin also embeds the configured labels as a hidden marker in the issue body:
+
+```
+<!-- forum-labels: bug, from-forum -->
+```
+
+Add this workflow to the target repository as `.github/workflows/forum-labels.yml` (one-time setup by someone with write access to the repo). It runs with the repository's own `GITHUB_TOKEN`, which is always allowed to set labels:
+
+```yaml
+name: Apply forum labels
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const match = body.match(/<!--\s*forum-labels:\s*([^>]*?)\s*-->/);
+            if (!match) return;
+            const labels = match[1].split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
+            if (!labels.length) return;
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              labels,
+            });
+```
+
+Notes:
+
+- When the token *does* have push access the labels are applied twice (API field + workflow) — that is harmless, the result is the same.
+- The marker is plain issue-body text, so anyone who can open issues in the repo could add such a marker by hand to label their own issue. If that matters, whitelist the allowed labels inside the workflow script.
+- `addLabels` creates labels that do not exist yet in the repository.

@@ -132,7 +132,11 @@ plugin.init = async function ({ router }) {
 				.filter(Boolean);
 			const payload = { title: title, body: body };
 			if (labels.length) {
+				// GitHub silently drops `labels` when the token lacks push/triage
+				// access, so also embed a marker the repo can act on via a
+				// workflow (see README) to apply the labels with its own token.
 				payload.labels = labels;
+				payload.body += `\n\n<!-- forum-labels: ${labels.join(', ')} -->`;
 			}
 			let response;
 			try {
