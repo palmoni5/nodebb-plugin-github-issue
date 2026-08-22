@@ -3,6 +3,7 @@
 const winston = require.main.require('winston');
 
 const db = require.main.require('./src/database');
+const posts = require.main.require('./src/posts');
 const groups = require.main.require('./src/groups');
 const privileges = require.main.require('./src/privileges');
 const notifications = require.main.require('./src/notifications');
@@ -15,6 +16,7 @@ const plugin = {};
 
 const CONFIG_KEY = 'plugin:github-issue:config';
 const PID_KEY_PREFIX = 'plugin:github-issue:pid:';
+const TID_KEY_PREFIX = 'plugin:github-issue:tid:';
 const PRIVILEGE = 'plugin-github-issue';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WARN_BEFORE_DAYS = 10;
@@ -161,13 +163,26 @@ plugin.init = async function ({ router }) {
 				throw new Error(`[[github-issue:error.github, ${response.status}]]`);
 			}
 			const issue = await response.json();
+			const tid = parseInt(await posts.getPostField(pid, 'tid'), 10) || 0;
+			const timestamp = Date.now();
 			await db.setObject(PID_KEY_PREFIX + pid, {
 				url: issue.html_url,
 				number: issue.number,
-				timestamp: Date.now(),
+				title: issue.title || title,
+				timestamp: timestamp,
 				uid: socket.uid,
+				tid: tid,
 			});
-			return { url: issue.html_url, number: issue.number };
+			if (tid) {
+				await db.sortedSetAdd(TID_KEY_PREFIX + tid, timestamp, pid);
+			}
+			return {
+				url: issue.html_url,
+				number: issue.number,
+				title: issue.title || title,
+				pid: parseInt(pid, 10),
+				timestamp: timestamp,
+			};
 		},
 		getExisting: async (socket, data) => {
 			if (!socket.uid) {
@@ -191,6 +206,8 @@ plugin.init = async function ({ router }) {
 			return { url: existing.url, number: parseInt(existing.number, 10) || 0 };
 		},
 	};
+
+	backfillTopicIndex().catch(err => winston.error(`[github-issue] topic index backfill failed: ${err.stack}`));
 
 	setInterval(() => {
 		checkExpiry().catch(err => winston.error(`[github-issue] expiry check failed: ${err.stack}`));
@@ -234,6 +251,74 @@ plugin.addAdminNavigation = async function (header) {
 	});
 	return header;
 };
+
+async function getTopicIssues(tid) {
+	if (!tid) {
+		return [];
+	}
+	const pids = await db.getSortedSetRange(TID_KEY_PREFIX + tid, 0, -1);
+	if (!pids.length) {
+		return [];
+	}
+	const issues = await db.getObjects(pids.map(pid => PID_KEY_PREFIX + pid));
+	return issues.map((issue, i) => {
+		if (!issue || !issue.url) {
+			return null;
+		}
+		return {
+			pid: parseInt(pids[i], 10),
+			url: issue.url,
+			number: parseInt(issue.number, 10) || 0,
+			title: issue.title || '',
+			timestamp: parseInt(issue.timestamp, 10) || 0,
+		};
+	}).filter(Boolean);
+}
+
+plugin.addTopicIssues = async function (data) {
+	const templateData = data && data.templateData;
+	const uid = (data.req && data.req.uid) || 0;
+	if (!templateData || !templateData.tid || !uid) {
+		return data;
+	}
+	const allowed = await privileges.global.can(PRIVILEGE, uid);
+	if (!allowed) {
+		return data;
+	}
+	templateData.githubIssues = await getTopicIssues(templateData.tid);
+	return data;
+};
+
+// issues opened before the per-topic index existed are only keyed by pid
+async function backfillTopicIndex() {
+	const config = await getConfig();
+	if (parseInt(config.tidIndexBuilt, 10)) {
+		return;
+	}
+	const keys = await db.scan({ match: `${PID_KEY_PREFIX}*` });
+	let indexed = 0;
+	for (const key of keys) {
+		const issue = await db.getObject(key);
+		if (!issue || !issue.url || parseInt(issue.tid, 10)) {
+			continue;
+		}
+		const pid = key.slice(PID_KEY_PREFIX.length);
+		const tid = parseInt(await posts.getPostField(pid, 'tid'), 10) || 0;
+		if (!tid) {
+			continue;
+		}
+		await Promise.all([
+			db.setObjectField(key, 'tid', tid),
+			db.sortedSetAdd(TID_KEY_PREFIX + tid, parseInt(issue.timestamp, 10) || Date.now(), pid),
+		]);
+		indexed += 1;
+	}
+	await db.setObjectField(CONFIG_KEY, 'tidIndexBuilt', 1);
+	cachedConfig = null;
+	if (indexed) {
+		winston.info(`[github-issue] indexed ${indexed} existing issue(s) by topic`);
+	}
+}
 
 async function checkExpiry() {
 	const config = await getConfig();

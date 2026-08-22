@@ -10,7 +10,8 @@
     { "hook": "static:app.load", "method": "init" },
     { "hook": "static:privileges.global.init", "method": "addPrivilege" },
     { "hook": "filter:post.tools", "method": "addPostTool" },
-    { "hook": "filter:admin.header.build", "method": "addAdminNavigation" }
+    { "hook": "filter:admin.header.build", "method": "addAdminNavigation" },
+    { "hook": "filter:topic.build", "method": "addTopicIssues" }
   ],
   "modules": {
     "../admin/plugins/github-issue.js": "static/lib/admin.js"

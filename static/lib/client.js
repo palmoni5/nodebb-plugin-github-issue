@@ -6,6 +6,74 @@ $(document).ready(function () {
 	}
 	window.__githubIssueBound = true;
 
+	$(window).on('action:ajaxify.end', renderTopicIssues);
+	if (window.ajaxify && ajaxify.data) {
+		renderTopicIssues();
+	}
+
+	function renderTopicIssues() {
+		$('.github-issue-topic-sidebar').remove();
+		if (!ajaxify.data || ajaxify.data.template.name !== 'topic') {
+			return;
+		}
+		const issues = ajaxify.data.githubIssues;
+		if (!Array.isArray(issues) || !issues.length) {
+			return;
+		}
+		require(['translator'], function (translator) {
+			translator.translate('[[github-issue:topic-issues]]|[[github-issue:from-post]]', function (translated) {
+				const parts = translated.split('|');
+				const heading = parts[0];
+				const fromPost = parts[1];
+				const panel = $('<div class="github-issue-topic-sidebar d-flex flex-column gap-1"></div>');
+				panel.append(
+					$('<div class="fw-semibold text-xs text-muted text-nowrap"></div>')
+						.append($('<i class="fa fa-github me-1"></i>'))
+						.append($('<span></span>').text(heading + ' (' + issues.length + ')'))
+				);
+				const list = $('<ul class="list-unstyled m-0 d-flex flex-column gap-1"></ul>');
+				issues.forEach(function (issue) {
+					const label = '#' + issue.number + (issue.title ? ' ' + issue.title : '');
+					const link = $('<a class="d-block text-truncate" target="_blank" rel="noopener noreferrer"></a>')
+						.attr('href', issue.url)
+						.attr('title', label)
+						.text(label);
+					const item = $('<li></li>').append(link);
+					if (issue.pid) {
+						item.append(
+							$('<a class="d-block text-xs text-muted"></a>')
+								.attr('href', config.relative_path + '/post/' + issue.pid)
+								.text(fromPost)
+						);
+					}
+					list.append(item);
+				});
+				panel.append(list);
+				placePanel(panel);
+			});
+		});
+	}
+
+	function placePanel(panel) {
+		// harmony's sticky topic sidebar column, hidden below lg
+		const sticky = $('.sticky-top .flex-column.align-items-end').first();
+		if (sticky.length) {
+			panel.addClass('ps-2').css({ 'min-width': '170px', 'max-width': '240px' });
+			sticky.append($('<hr class="my-0" style="min-width: 170px;" />').addClass('github-issue-topic-sidebar'))
+				.append(panel);
+			return;
+		}
+		const widgetArea = $('[data-widget-area="sidebar"]').first();
+		if (widgetArea.length) {
+			widgetArea.removeClass('hidden');
+			panel.addClass('card card-body p-3 mb-3');
+			widgetArea.prepend(panel);
+			return;
+		}
+		panel.addClass('card card-body p-3 mb-3');
+		$('[component="topic"]').first().before(panel);
+	}
+
 	$(document).on('click', '[component="post/github-issue"]', function (e) {
 		e.preventDefault();
 		const postEl = $(this).closest('[data-pid]');
@@ -95,6 +163,10 @@ $(document).ready(function () {
 							}, function (err, result) {
 								if (err) {
 									return alerts.error(err);
+								}
+								if (ajaxify.data && ajaxify.data.template.name === 'topic') {
+									ajaxify.data.githubIssues = (ajaxify.data.githubIssues || []).concat(result);
+									renderTopicIssues();
 								}
 								alerts.alert({
 									type: 'success',
