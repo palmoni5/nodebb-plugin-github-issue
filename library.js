@@ -21,6 +21,7 @@ const PRIVILEGE = 'plugin-github-issue';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WARN_BEFORE_DAYS = 10;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const STATE_TTL_MS = 10 * 60 * 1000;
 
 let cachedConfig = null;
 
@@ -172,6 +173,9 @@ plugin.init = async function ({ router }) {
 				timestamp: timestamp,
 				uid: socket.uid,
 				tid: tid,
+				state: 'open',
+				stateReason: '',
+				stateCheckedAt: timestamp,
 			});
 			if (tid) {
 				await db.sortedSetAdd(TID_KEY_PREFIX + tid, timestamp, pid);
@@ -182,6 +186,8 @@ plugin.init = async function ({ router }) {
 				title: issue.title || title,
 				pid: parseInt(pid, 10),
 				timestamp: timestamp,
+				state: 'open',
+				stateReason: '',
 			};
 		},
 		getExisting: async (socket, data) => {
@@ -261,7 +267,7 @@ async function getTopicIssues(tid) {
 		return [];
 	}
 	const issues = await db.getObjects(pids.map(pid => PID_KEY_PREFIX + pid));
-	return issues.map((issue, i) => {
+	const list = issues.map((issue, i) => {
 		if (!issue || !issue.url) {
 			return null;
 		}
@@ -271,8 +277,68 @@ async function getTopicIssues(tid) {
 			number: parseInt(issue.number, 10) || 0,
 			title: issue.title || '',
 			timestamp: parseInt(issue.timestamp, 10) || 0,
+			state: issue.state || '',
+			stateReason: issue.stateReason || '',
+			stateCheckedAt: parseInt(issue.stateCheckedAt, 10) || 0,
 		};
 	}).filter(Boolean);
+	await refreshIssueStates(list);
+	list.forEach((issue) => { delete issue.stateCheckedAt; });
+	return list;
+}
+
+// the repo an issue lives in is derived from its stored URL rather than the
+// current config, so states stay correct after the target repo changes
+function apiUrlFromIssueUrl(url) {
+	const match = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)$/.exec(String(url || ''));
+	return match ? `https://api.github.com/repos/${match[1]}/issues/${match[2]}` : '';
+}
+
+async function refreshIssueStates(list) {
+	const config = await getConfig();
+	if (!config.token) {
+		return;
+	}
+	const now = Date.now();
+	const stale = list.filter(issue => now - issue.stateCheckedAt >= STATE_TTL_MS && apiUrlFromIssueUrl(issue.url));
+	if (!stale.length) {
+		return;
+	}
+	await Promise.all(stale.map(async (issue) => {
+		let fetched = null;
+		try {
+			const response = await fetch(apiUrlFromIssueUrl(issue.url), {
+				headers: {
+					Authorization: `Bearer ${config.token}`,
+					Accept: 'application/vnd.github+json',
+					'User-Agent': 'nodebb-plugin-github-issue',
+					'X-GitHub-Api-Version': '2022-11-28',
+				},
+			});
+			if (response.ok) {
+				fetched = await response.json();
+			} else {
+				winston.warn(`[github-issue] state check for #${issue.number} returned ${response.status}`);
+			}
+		} catch (err) {
+			winston.warn(`[github-issue] state check for #${issue.number} failed: ${err.message}`);
+		}
+		if (fetched && fetched.state) {
+			issue.state = fetched.state;
+			issue.stateReason = fetched.state_reason || '';
+			if (fetched.title) {
+				issue.title = fetched.title;
+			}
+		}
+		// stamp even on failure so a broken token doesn't delay page loads
+		// with a GitHub round-trip on every visit
+		await db.setObject(PID_KEY_PREFIX + issue.pid, {
+			state: issue.state,
+			stateReason: issue.stateReason,
+			title: issue.title,
+			stateCheckedAt: now,
+		});
+	}));
 }
 
 plugin.addTopicIssues = async function (data) {

@@ -21,10 +21,11 @@ $(document).ready(function () {
 			return;
 		}
 		require(['translator'], function (translator) {
-			translator.translate('[[github-issue:topic-issues]]|[[github-issue:from-post]]', function (translated) {
+			translator.translate('[[github-issue:topic-issues]]|[[github-issue:from-post]]|[[github-issue:state-open]]|[[github-issue:state-closed]]|[[github-issue:state-not-planned]]', function (translated) {
 				const parts = translated.split('|');
 				const heading = parts[0];
 				const fromPost = parts[1];
+				const stateLabels = { open: parts[2], closed: parts[3], 'not_planned': parts[4] };
 				const panel = $('<div class="github-issue-topic-sidebar d-flex flex-column gap-1"></div>');
 				panel.append(
 					$('<div class="fw-semibold text-xs text-muted text-nowrap"></div>')
@@ -38,6 +39,11 @@ $(document).ready(function () {
 						.attr('href', issue.url)
 						.attr('title', label)
 						.text(label);
+					const stateIcon = buildStateIcon(issue, stateLabels);
+					if (stateIcon) {
+						link.prepend(stateIcon);
+						link.attr('title', stateIcon.attr('title') + ' — ' + label);
+					}
 					const item = $('<li></li>').append(link);
 					if (issue.pid) {
 						item.append(
@@ -52,6 +58,21 @@ $(document).ready(function () {
 				placePanel(panel);
 			});
 		});
+	}
+
+	// mirrors GitHub's own issue icons: green open circle, purple check for
+	// closed-as-completed, grey slashed circle for closed-as-not-planned
+	function buildStateIcon(issue, stateLabels) {
+		if (issue.state === 'open') {
+			return $('<i class="fa fa-circle-dot me-1" style="color: #1a7f37;"></i>').attr('title', stateLabels.open);
+		}
+		if (issue.state === 'closed') {
+			if (issue.stateReason === 'not_planned') {
+				return $('<i class="fa fa-ban me-1 text-muted"></i>').attr('title', stateLabels.not_planned);
+			}
+			return $('<i class="fa fa-circle-check me-1" style="color: #8250df;"></i>').attr('title', stateLabels.closed);
+		}
+		return null;
 	}
 
 	function placePanel(panel) {
