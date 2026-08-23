@@ -60,19 +60,55 @@ $(document).ready(function () {
 		});
 	}
 
-	// mirrors GitHub's own issue icons: green open circle, purple check for
-	// closed-as-completed, grey slashed circle for closed-as-not-planned
+	// GitHub's own issue icons (Octicons, MIT licensed: primer/octicons),
+	// embedded inline so no external assets are loaded
+	const OCTICONS = {
+		open: {
+			color: '#1a7f37',
+			paths: [
+				'M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z',
+				'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z',
+			],
+		},
+		closed: {
+			color: '#8250df',
+			paths: [
+				'M11.28 6.78a.75.75 0 0 0-1.06-1.06L7.25 8.69 5.78 7.22a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.5-3.5Z',
+				'M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0Zm-1.5 0a6.5 6.5 0 1 0-13 0 6.5 6.5 0 0 0 13 0Z',
+			],
+		},
+		notPlanned: {
+			color: '#59636e',
+			paths: [
+				'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm9.78-2.22-5.5 5.5a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l5.5-5.5a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z',
+			],
+		},
+	};
+
 	function buildStateIcon(issue, stateLabels) {
+		let icon;
+		let label;
 		if (issue.state === 'open') {
-			return $('<i class="fa fa-circle-dot me-1" style="color: #1a7f37;"></i>').attr('title', stateLabels.open);
+			icon = OCTICONS.open;
+			label = stateLabels.open;
+		} else if (issue.state === 'closed' && issue.stateReason === 'not_planned') {
+			icon = OCTICONS.notPlanned;
+			label = stateLabels.not_planned;
+		} else if (issue.state === 'closed') {
+			icon = OCTICONS.closed;
+			label = stateLabels.closed;
+		} else {
+			return null;
 		}
-		if (issue.state === 'closed') {
-			if (issue.stateReason === 'not_planned') {
-				return $('<i class="fa fa-ban me-1 text-muted"></i>').attr('title', stateLabels.not_planned);
-			}
-			return $('<i class="fa fa-circle-check me-1" style="color: #8250df;"></i>').attr('title', stateLabels.closed);
-		}
-		return null;
+		const svg = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor" style="vertical-align: -0.125em;">' +
+			icon.paths.map(function (d) {
+				return '<path d="' + d + '"></path>';
+			}).join('') +
+			'</svg>';
+		return $('<span class="me-1"></span>')
+			.css('color', icon.color)
+			.attr('title', label)
+			.append($(svg));
 	}
 
 	function placePanel(panel) {
