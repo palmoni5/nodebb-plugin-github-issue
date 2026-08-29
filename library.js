@@ -190,6 +190,24 @@ plugin.init = async function ({ router }) {
 				stateReason: '',
 			};
 		},
+		findDuplicates: async (socket, data) => {
+			if (!socket.uid) {
+				throw new Error('[[error:not-logged-in]]');
+			}
+			const title = String((data && data.title) || '').trim();
+			if (!title || title.length > 256) {
+				throw new Error('[[error:invalid-data]]');
+			}
+			const allowed = await privileges.global.can(PRIVILEGE, socket.uid);
+			if (!allowed) {
+				throw new Error('[[error:no-privileges]]');
+			}
+			const config = await getConfig();
+			if (!config.token || !config.repo) {
+				return [];
+			}
+			return await findIssuesByTitle(config, title);
+		},
 		getExisting: async (socket, data) => {
 			if (!socket.uid) {
 				throw new Error('[[error:not-logged-in]]');
@@ -285,6 +303,53 @@ async function getTopicIssues(tid) {
 	await refreshIssueStates(list);
 	list.forEach((issue) => { delete issue.stateCheckedAt; });
 	return list;
+}
+
+function normalizeTitle(title) {
+	return String(title || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// GitHub's search API has no exact-title operator, so ask for an `in:title`
+// phrase match and keep only the hits whose title is actually identical.
+// A failed/rate-limited search returns an empty list on purpose: the duplicate
+// check is advisory and must never block issue creation.
+async function findIssuesByTitle(config, title) {
+	// quotes and backslashes would break out of the quoted search phrase
+	const phrase = title.replace(/["\\]/g, ' ').trim();
+	if (!phrase) {
+		return [];
+	}
+	const query = `repo:${config.repo} is:issue in:title "${phrase}"`;
+	let response;
+	try {
+		response = await fetch(`https://api.github.com/search/issues?per_page=20&q=${encodeURIComponent(query)}`, {
+			headers: {
+				Authorization: `Bearer ${config.token}`,
+				Accept: 'application/vnd.github+json',
+				'User-Agent': 'nodebb-plugin-github-issue',
+				'X-GitHub-Api-Version': '2022-11-28',
+			},
+		});
+	} catch (err) {
+		winston.warn(`[github-issue] duplicate search failed: ${err.message}`);
+		return [];
+	}
+	if (!response.ok) {
+		winston.warn(`[github-issue] duplicate search returned ${response.status}`);
+		return [];
+	}
+	const body = await response.json().catch(() => null);
+	const items = (body && Array.isArray(body.items)) ? body.items : [];
+	const wanted = normalizeTitle(title);
+	return items
+		.filter(item => item && !item.pull_request && normalizeTitle(item.title) === wanted)
+		.map(item => ({
+			number: item.number,
+			url: item.html_url,
+			title: item.title,
+			state: item.state || '',
+			stateReason: item.state_reason || '',
+		}));
 }
 
 // the repo an issue lives in is derived from its stored URL rather than the

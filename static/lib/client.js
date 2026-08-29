@@ -162,6 +162,12 @@ $(document).ready(function () {
 			'[[modules:bootbox.cancel]]',
 			'[[github-issue:created]]',
 			'[[github-issue:already-opened]]',
+			'[[github-issue:duplicate-title]]',
+			'[[github-issue:duplicate-warning]]',
+			'[[github-issue:duplicate-suggestion]]',
+			'[[github-issue:duplicate-change]]',
+			'[[github-issue:duplicate-create-anyway]]',
+			'[[github-issue:checking-duplicates]]',
 		];
 		Promise.all(keys.map(function (key) {
 			return new Promise(function (resolve) {
@@ -194,7 +200,10 @@ $(document).ready(function () {
 			bodyGroup.append(bodyInput);
 			form.append(titleGroup).append(bodyGroup);
 
-			bootbox.dialog({
+			// the title the user already confirmed as an intentional duplicate
+			let confirmedTitle = null;
+
+			const dialog = bootbox.dialog({
 				title: t[0],
 				message: form,
 				onEscape: true,
@@ -205,40 +214,122 @@ $(document).ready(function () {
 					},
 					submit: {
 						label: t[3],
-						className: 'btn-primary',
+						className: 'btn-primary github-issue-submit',
+						// the dialog is closed by hand once the issue is created, so
+						// that it stays open (with the typed text) on failure and
+						// while the duplicate check runs
 						callback: function () {
-							const title = titleInput.val().trim();
-							const body = bodyInput.val();
-							if (!title) {
-								titleInput.addClass('is-invalid').focus();
-								return false;
-							}
-							socket.emit('plugins.githubIssue.create', {
-								pid: pid,
-								title: title,
-								body: body,
-							}, function (err, result) {
-								if (err) {
-									return alerts.error(err);
-								}
-								if (ajaxify.data && ajaxify.data.template.name === 'topic') {
-									ajaxify.data.githubIssues = (ajaxify.data.githubIssues || []).concat(result);
-									renderTopicIssues();
-								}
-								alerts.alert({
-									type: 'success',
-									title: t[5] + ' — #' + result.number,
-									message: result.url,
-									timeout: 10000,
-									clickfn: function () {
-										window.open(result.url, '_blank', 'noopener');
-									},
-								});
-							});
+							onSubmit();
+							return false;
 						},
 					},
 				},
 			});
+
+			const submitBtn = dialog.find('.github-issue-submit');
+
+			function setBusy(busy) {
+				submitBtn.prop('disabled', busy).text(busy ? t[11] : t[3]);
+			}
+
+			function normalize(value) {
+				return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+			}
+
+			function onSubmit() {
+				const title = titleInput.val().trim();
+				const body = bodyInput.val();
+				if (!title) {
+					titleInput.addClass('is-invalid').focus();
+					return;
+				}
+				if (confirmedTitle !== null && normalize(confirmedTitle) === normalize(title)) {
+					createIssue(title, body);
+					return;
+				}
+				setBusy(true);
+				socket.emit('plugins.githubIssue.findDuplicates', { title: title }, function (err, matches) {
+					setBusy(false);
+					// a failed duplicate check must not block issue creation
+					if (!err && Array.isArray(matches) && matches.length) {
+						warnDuplicates(matches, title, body);
+						return;
+					}
+					createIssue(title, body);
+				});
+			}
+
+			function warnDuplicates(matches, title, body) {
+				const message = $('<div></div>');
+				message.append($('<p class="mb-2"></p>').text(t[7]));
+				const list = $('<ul class="mb-2"></ul>');
+				matches.forEach(function (match) {
+					list.append(
+						$('<li></li>').append(
+							$('<a target="_blank" rel="noopener noreferrer"></a>')
+								.attr('href', match.url)
+								.text('#' + match.number + ' ' + (match.title || ''))
+						)
+					);
+				});
+				message.append(list);
+				message.append($('<p class="mb-0 text-muted"></p>').text(t[8]));
+
+				bootbox.dialog({
+					title: t[6],
+					message: message,
+					onEscape: true,
+					buttons: {
+						change: {
+							label: t[9],
+							className: 'btn-primary',
+							callback: function () {
+								// focus once the confirm dialog has finished closing,
+								// otherwise it takes the focus back with it
+								setTimeout(function () {
+									titleInput.focus().select();
+								}, 300);
+							},
+						},
+						createAnyway: {
+							label: t[10],
+							className: 'btn-link',
+							callback: function () {
+								confirmedTitle = title;
+								createIssue(title, body);
+							},
+						},
+					},
+				});
+			}
+
+			function createIssue(title, body) {
+				setBusy(true);
+				socket.emit('plugins.githubIssue.create', {
+					pid: pid,
+					title: title,
+					body: body,
+				}, function (err, result) {
+					setBusy(false);
+					if (err) {
+						return alerts.error(err);
+					}
+					dialog.modal('hide');
+					if (ajaxify.data && ajaxify.data.template.name === 'topic') {
+						ajaxify.data.githubIssues = (ajaxify.data.githubIssues || []).concat(result);
+						renderTopicIssues();
+					}
+					alerts.alert({
+						type: 'success',
+						title: t[5] + ' — #' + result.number,
+						message: result.url,
+						timeout: 10000,
+						clickfn: function () {
+							window.open(result.url, '_blank', 'noopener');
+						},
+					});
+				});
+			}
 		});
 	}
 });
