@@ -10,6 +10,7 @@ define('admin/plugins/github-issue', ['alerts'], function (alerts) {
 				labels: $('#github-issue-labels').val(),
 				token: $('#github-issue-token').val(),
 				expiryDays: $('#github-issue-expiry').val(),
+				publicSidebar: $('#github-issue-public-sidebar').is(':checked'),
 			}, function (err, status) {
 				if (err) {
 					return alerts.error(err);

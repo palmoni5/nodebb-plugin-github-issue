@@ -42,6 +42,11 @@
 					<input type="text" id="github-issue-expiry" class="form-control" value="{expiryDays}" dir="ltr" />
 					<p class="form-text">{{tx("github-issue:admin.expiry-help")}}</p>
 				</div>
+				<div class="form-check form-switch mb-3">
+					<input class="form-check-input" type="checkbox" id="github-issue-public-sidebar" {{{ if publicSidebar }}}checked{{{ end }}} />
+					<label class="form-check-label" for="github-issue-public-sidebar">{{tx("github-issue:admin.public-sidebar")}}</label>
+					<p class="form-text">{{tx("github-issue:admin.public-sidebar-help")}}</p>
+				</div>
 				<button type="button" id="github-issue-save" class="btn btn-primary">{{tx("github-issue:admin.save")}}</button>
 			</form>
 

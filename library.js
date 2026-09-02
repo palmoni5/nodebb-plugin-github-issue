@@ -50,6 +50,7 @@ async function buildStatus() {
 		repo: config.repo || '',
 		labels: config.labels || '',
 		expiryDays: config.expiryDays || '',
+		publicSidebar: parseInt(config.publicSidebar, 10) === 1,
 		tokenSet: !!config.token,
 		tokenSetAt: config.tokenSetAt ? new Date(parseInt(config.tokenSetAt, 10)).toISOString().slice(0, 10) : '',
 		hasExpiry: !!expiresAt,
@@ -82,6 +83,7 @@ plugin.init = async function ({ router }) {
 				repo: repo,
 				labels: String(data.labels || '').trim(),
 				expiryDays: expiryRaw,
+				publicSidebar: data.publicSidebar ? 1 : 0,
 			};
 			if (newToken) {
 				update.token = newToken;
@@ -412,7 +414,9 @@ plugin.addTopicIssues = async function (data) {
 	if (!templateData || !templateData.tid || !uid) {
 		return data;
 	}
-	const allowed = await privileges.global.can(PRIVILEGE, uid);
+	const config = await getConfig();
+	const isPublic = parseInt(config.publicSidebar, 10) === 1;
+	const allowed = isPublic || await privileges.global.can(PRIVILEGE, uid);
 	if (!allowed) {
 		return data;
 	}
