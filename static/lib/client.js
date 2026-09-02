@@ -6,14 +6,17 @@ $(document).ready(function () {
 	}
 	window.__githubIssueBound = true;
 
+	let currentRenderId = 0;
+
 	$(window).on('action:ajaxify.end', renderTopicIssues);
-	if (window.ajaxify && ajaxify.data) {
+	if (document.readyState === 'complete' && window.ajaxify && ajaxify.data) {
 		renderTopicIssues();
 	}
 
 	function renderTopicIssues() {
+		const renderId = ++currentRenderId;
 		$('.github-issue-topic-sidebar').remove();
-		if (!ajaxify.data || ajaxify.data.template.name !== 'topic') {
+		if (!ajaxify.data || !ajaxify.data.template || ajaxify.data.template.name !== 'topic') {
 			return;
 		}
 		const issues = ajaxify.data.githubIssues;
@@ -21,7 +24,16 @@ $(document).ready(function () {
 			return;
 		}
 		require(['translator'], function (translator) {
+			if (renderId !== currentRenderId) {
+				return;
+			}
 			translator.translate('[[github-issue:topic-issues]]|[[github-issue:from-post]]|[[github-issue:state-open]]|[[github-issue:state-closed]]|[[github-issue:state-not-planned]]', function (translated) {
+				if (renderId !== currentRenderId) {
+					return;
+				}
+				if (!ajaxify.data || !ajaxify.data.template || ajaxify.data.template.name !== 'topic') {
+					return;
+				}
 				const parts = translated.split('|');
 				const heading = parts[0];
 				const fromPost = parts[1];
@@ -112,6 +124,7 @@ $(document).ready(function () {
 	}
 
 	function placePanel(panel) {
+		$('.github-issue-topic-sidebar').remove();
 		// harmony's sticky topic sidebar column, hidden below lg
 		const sticky = $('.sticky-top .flex-column.align-items-end').first();
 		if (sticky.length) {
@@ -154,26 +167,33 @@ $(document).ready(function () {
 	});
 
 	function openDialog(pid, content, existing, bootbox, alerts, translator) {
-		const keys = [
-			'[[github-issue:dialog-title]]',
-			'[[github-issue:issue-title]]',
-			'[[github-issue:issue-body]]',
-			'[[github-issue:submit]]',
-			'[[modules:bootbox.cancel]]',
-			'[[github-issue:created]]',
-			'[[github-issue:already-opened]]',
-			'[[github-issue:duplicate-title]]',
-			'[[github-issue:duplicate-warning]]',
-			'[[github-issue:duplicate-suggestion]]',
-			'[[github-issue:duplicate-change]]',
-			'[[github-issue:duplicate-create-anyway]]',
-			'[[github-issue:checking-duplicates]]',
-		];
-		Promise.all(keys.map(function (key) {
+		const translationKeys = {
+			dialogTitle: '[[github-issue:dialog-title]]',
+			issueTitle: '[[github-issue:issue-title]]',
+			issueBody: '[[github-issue:issue-body]]',
+			submit: '[[github-issue:submit]]',
+			cancel: '[[modules:bootbox.cancel]]',
+			created: '[[github-issue:created]]',
+			alreadyOpened: '[[github-issue:already-opened]]',
+			duplicateTitle: '[[github-issue:duplicate-title]]',
+			duplicateWarning: '[[github-issue:duplicate-warning]]',
+			duplicateSuggestion: '[[github-issue:duplicate-suggestion]]',
+			duplicateChange: '[[github-issue:duplicate-change]]',
+			duplicateCreateAnyway: '[[github-issue:duplicate-create-anyway]]',
+			checkingDuplicates: '[[github-issue:checking-duplicates]]',
+			creating: '[[github-issue:creating]]',
+		};
+		const keyNames = Object.keys(translationKeys);
+		Promise.all(keyNames.map(function (key) {
 			return new Promise(function (resolve) {
-				translator.translate(key, resolve);
+				translator.translate(translationKeys[key], resolve);
 			});
-		})).then(function (t) {
+		})).then(function (results) {
+			const t = {};
+			keyNames.forEach(function (key, index) {
+				t[key] = results[index];
+			});
+
 			const postUrl = window.location.origin + config.relative_path + '/post/' + encodeURIComponent(pid);
 			const defaultTitle = (ajaxify.data && (ajaxify.data.titleRaw || ajaxify.data.title)) || '';
 			const defaultBody = content + '\n\n---\n' + postUrl;
@@ -182,7 +202,7 @@ $(document).ready(function () {
 			if (existing && existing.url) {
 				const warning = $('<div class="alert alert-warning d-flex align-items-center gap-2 mb-3"></div>');
 				warning.append($('<i class="fa fa-exclamation-triangle"></i>'));
-				warning.append($('<span></span>').text(t[6]));
+				warning.append($('<span></span>').text(t.alreadyOpened));
 				warning.append(
 					$('<a target="_blank" rel="noopener noreferrer"></a>')
 						.attr('href', existing.url)
@@ -191,11 +211,11 @@ $(document).ready(function () {
 				form.append(warning);
 			}
 			const titleGroup = $('<div class="mb-3"></div>');
-			titleGroup.append($('<label class="form-label"></label>').text(t[1]));
+			titleGroup.append($('<label class="form-label"></label>').text(t.issueTitle));
 			const titleInput = $('<input type="text" class="form-control" maxlength="256">').val(defaultTitle);
 			titleGroup.append(titleInput);
 			const bodyGroup = $('<div class="mb-3"></div>');
-			bodyGroup.append($('<label class="form-label"></label>').text(t[2]));
+			bodyGroup.append($('<label class="form-label"></label>').text(t.issueBody));
 			const bodyInput = $('<textarea class="form-control" rows="12"></textarea>').val(defaultBody);
 			bodyGroup.append(bodyInput);
 			form.append(titleGroup).append(bodyGroup);
@@ -204,16 +224,16 @@ $(document).ready(function () {
 			let confirmedTitle = null;
 
 			const dialog = bootbox.dialog({
-				title: t[0],
+				title: t.dialogTitle,
 				message: form,
 				onEscape: true,
 				buttons: {
 					cancel: {
-						label: t[4],
+						label: t.cancel,
 						className: 'btn-link',
 					},
 					submit: {
-						label: t[3],
+						label: t.submit,
 						className: 'btn-primary github-issue-submit',
 						// the dialog is closed by hand once the issue is created, so
 						// that it stays open (with the typed text) on failure and
@@ -228,8 +248,8 @@ $(document).ready(function () {
 
 			const submitBtn = dialog.find('.github-issue-submit');
 
-			function setBusy(busy) {
-				submitBtn.prop('disabled', busy).text(busy ? t[11] : t[3]);
+			function setBusy(busy, label) {
+				submitBtn.prop('disabled', busy).text(busy ? (label || t.creating) : t.submit);
 			}
 
 			function normalize(value) {
@@ -247,7 +267,7 @@ $(document).ready(function () {
 					createIssue(title, body);
 					return;
 				}
-				setBusy(true);
+				setBusy(true, t.checkingDuplicates);
 				socket.emit('plugins.githubIssue.findDuplicates', { title: title }, function (err, matches) {
 					setBusy(false);
 					// a failed duplicate check must not block issue creation
@@ -261,7 +281,7 @@ $(document).ready(function () {
 
 			function warnDuplicates(matches, title, body) {
 				const message = $('<div></div>');
-				message.append($('<p class="mb-2"></p>').text(t[7]));
+				message.append($('<p class="mb-2"></p>').text(t.duplicateWarning));
 				const list = $('<ul class="mb-2"></ul>');
 				matches.forEach(function (match) {
 					list.append(
@@ -273,15 +293,15 @@ $(document).ready(function () {
 					);
 				});
 				message.append(list);
-				message.append($('<p class="mb-0 text-muted"></p>').text(t[8]));
+				message.append($('<p class="mb-0 text-muted"></p>').text(t.duplicateSuggestion));
 
 				bootbox.dialog({
-					title: t[6],
+					title: t.duplicateTitle,
 					message: message,
 					onEscape: true,
 					buttons: {
 						change: {
-							label: t[9],
+							label: t.duplicateChange,
 							className: 'btn-primary',
 							callback: function () {
 								// focus once the confirm dialog has finished closing,
@@ -292,7 +312,7 @@ $(document).ready(function () {
 							},
 						},
 						createAnyway: {
-							label: t[10],
+							label: t.duplicateCreateAnyway,
 							className: 'btn-link',
 							callback: function () {
 								confirmedTitle = title;
@@ -304,7 +324,7 @@ $(document).ready(function () {
 			}
 
 			function createIssue(title, body) {
-				setBusy(true);
+				setBusy(true, t.creating);
 				socket.emit('plugins.githubIssue.create', {
 					pid: pid,
 					title: title,
@@ -315,13 +335,13 @@ $(document).ready(function () {
 						return alerts.error(err);
 					}
 					dialog.modal('hide');
-					if (ajaxify.data && ajaxify.data.template.name === 'topic') {
+					if (ajaxify.data && ajaxify.data.template && ajaxify.data.template.name === 'topic') {
 						ajaxify.data.githubIssues = (ajaxify.data.githubIssues || []).concat(result);
 						renderTopicIssues();
 					}
 					alerts.alert({
 						type: 'success',
-						title: t[5] + ' — #' + result.number,
+						title: t.created + ' — #' + result.number,
 						message: result.url,
 						timeout: 10000,
 						clickfn: function () {
