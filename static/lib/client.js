@@ -51,7 +51,13 @@ $(document).ready(function () {
 						.append($('<i class="fa fa-github me-1"></i>'))
 						.append($('<span></span>').text(heading + ' (' + issues.length + ')'))
 				);
-				const list = $('<ul class="list-unstyled m-0 d-flex flex-column gap-1"></ul>');
+				const list = $('<ul class="list-unstyled m-0 d-flex flex-column gap-1 pe-1"></ul>').css({
+					'max-height': 'calc(100vh - 350px)',
+					'overflow-y': 'auto',
+					'overflow-x': 'hidden',
+					'overscroll-behavior': 'contain',
+					'scrollbar-width': 'thin',
+				});
 				issues.forEach(function (issue) {
 					const label = '#' + issue.number + (issue.title ? ' ' + issue.title : '');
 					const link = $('<a class="d-block text-truncate" target="_blank" rel="noopener noreferrer"></a>')
@@ -195,12 +201,14 @@ $(document).ready(function () {
 
 	function placePanel(panel) {
 		$('.github-issue-topic-sidebar').remove();
+		ensureScrollbarStyles();
 		// harmony's sticky topic sidebar column, hidden below lg
 		const sticky = $('.sticky-top .flex-column.align-items-end').first();
 		if (sticky.length) {
 			panel.addClass('ps-2').css({ 'min-width': '170px', 'max-width': '240px' });
 			sticky.append($('<hr class="my-0" style="min-width: 170px;" />').addClass('github-issue-topic-sidebar'))
 				.append(panel);
+			setTimeout(function () { adjustSidebarHeight(panel); }, 0);
 			return;
 		}
 		const widgetArea = $('[data-widget-area="sidebar"]').first();
@@ -208,11 +216,53 @@ $(document).ready(function () {
 			widgetArea.removeClass('hidden');
 			panel.addClass('card card-body p-3 mb-3');
 			widgetArea.prepend(panel);
+			setTimeout(function () { adjustSidebarHeight(panel); }, 0);
 			return;
 		}
 		panel.addClass('card card-body p-3 mb-3');
 		$('[component="topic"]').first().before(panel);
+		setTimeout(function () { adjustSidebarHeight(panel); }, 0);
 	}
+
+	function adjustSidebarHeight(panel) {
+		panel = panel || $('.github-issue-topic-sidebar.d-flex').first();
+		if (!panel || !panel.length) {
+			return;
+		}
+		const list = panel.find('ul');
+		if (!list.length) {
+			return;
+		}
+		const stickyContainer = panel.closest('.sticky-top');
+		if (stickyContainer.length) {
+			const stickyTopPx = parseFloat(stickyContainer.css('top')) || 32;
+			const stickyOffset = stickyContainer.offset() ? stickyContainer.offset().top : 0;
+			const listOffset = list.offset() ? list.offset().top : 0;
+			const listOffsetInSticky = Math.max(0, listOffset - stickyOffset);
+			const available = window.innerHeight - stickyTopPx - listOffsetInSticky - 24;
+			const maxH = Math.max(140, Math.floor(available));
+			list.css('max-height', maxH + 'px');
+		} else {
+			list.css('max-height', '400px');
+		}
+	}
+
+	function ensureScrollbarStyles() {
+		if ($('#github-issue-sidebar-scrollbar-style').length) {
+			return;
+		}
+		$('head').append(
+			$('<style id="github-issue-sidebar-scrollbar-style">' +
+				'.github-issue-topic-sidebar ul::-webkit-scrollbar { width: 4px; }' +
+				'.github-issue-topic-sidebar ul::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.4); border-radius: 2px; }' +
+				'.github-issue-topic-sidebar ul::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, 0.7); }' +
+			'</style>')
+		);
+	}
+
+	$(window).on('resize', function () {
+		adjustSidebarHeight();
+	});
 
 	$(document).on('click', '[component="post/github-issue-status"]', function (e) {
 		e.stopPropagation();
