@@ -7,15 +7,22 @@ $(document).ready(function () {
 	window.__githubIssueBound = true;
 
 	let currentRenderId = 0;
+	let cachedStateLabels = null;
 
 	$(window).on('action:ajaxify.end', renderTopicIssues);
-	if (document.readyState === 'complete' && window.ajaxify && ajaxify.data) {
+	$(window).on('action:posts.loaded', function () {
+		if (ajaxify.data && ajaxify.data.template && ajaxify.data.template.name === 'topic') {
+			renderPostIssues();
+		}
+	});
+	if (window.ajaxify && ajaxify.data && ajaxify.data.template && ajaxify.data.template.name === 'topic') {
 		renderTopicIssues();
 	}
 
 	function renderTopicIssues() {
 		const renderId = ++currentRenderId;
 		$('.github-issue-topic-sidebar').remove();
+		$('[component="post/github-issue-status"]').remove();
 		if (!ajaxify.data || !ajaxify.data.template || ajaxify.data.template.name !== 'topic') {
 			return;
 		}
@@ -68,6 +75,8 @@ $(document).ready(function () {
 				});
 				panel.append(list);
 				placePanel(panel);
+				cachedStateLabels = stateLabels;
+				renderPostIssues(issues, stateLabels);
 			});
 		});
 	}
@@ -97,21 +106,25 @@ $(document).ready(function () {
 		},
 	};
 
-	function buildStateIcon(issue, stateLabels) {
-		let icon;
-		let label;
-		if (issue.state === 'open') {
-			icon = OCTICONS.open;
-			label = stateLabels.open;
-		} else if (issue.state === 'closed' && issue.stateReason === 'not_planned') {
-			icon = OCTICONS.notPlanned;
-			label = stateLabels.not_planned;
-		} else if (issue.state === 'closed') {
-			icon = OCTICONS.closed;
-			label = stateLabels.closed;
-		} else {
-			return null;
+	function resolveIssueIconAndLabel(issue, stateLabels) {
+		let icon = OCTICONS.open;
+		let label = stateLabels.open;
+		if (issue.state === 'closed') {
+			if (issue.stateReason === 'not_planned') {
+				icon = OCTICONS.notPlanned;
+				label = stateLabels.not_planned;
+			} else {
+				icon = OCTICONS.closed;
+				label = stateLabels.closed;
+			}
 		}
+		return { icon: icon, label: label };
+	}
+
+	function buildStateIcon(issue, stateLabels) {
+		const resolved = resolveIssueIconAndLabel(issue, stateLabels);
+		const icon = resolved.icon;
+		const label = resolved.label;
 		const svg = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="currentColor" style="vertical-align: -0.125em;">' +
 			icon.paths.map(function (d) {
 				return '<path d="' + d + '"></path>';
@@ -121,6 +134,63 @@ $(document).ready(function () {
 			.css('color', icon.color)
 			.attr('title', label)
 			.append($(svg));
+	}
+
+	function buildPostButton(issue, stateLabels) {
+		const resolved = resolveIssueIconAndLabel(issue, stateLabels);
+		const icon = resolved.icon;
+		const label = resolved.label;
+		const issueLabel = '#' + issue.number + (issue.title ? ' ' + issue.title : '');
+		const title = label + ' — ' + issueLabel;
+		const svg = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor" style="display: block;">' +
+			icon.paths.map(function (d) {
+				return '<path d="' + d + '"></path>';
+			}).join('') +
+			'</svg>';
+		return $('<a component="post/github-issue-status" class="btn btn-ghost btn-sm d-inline-flex align-items-center justify-content-center" target="_blank" rel="noopener noreferrer"></a>')
+			.attr('href', issue.url)
+			.attr('title', title)
+			.attr('aria-label', title)
+			.css('color', icon.color)
+			.append($(svg));
+	}
+
+	function renderPostIssues(issues, stateLabels) {
+		issues = issues || (ajaxify.data && ajaxify.data.githubIssues);
+		stateLabels = stateLabels || cachedStateLabels;
+		if (!Array.isArray(issues) || !issues.length || !stateLabels) {
+			return;
+		}
+		issues.forEach(function (issue) {
+			if (!issue.pid) {
+				return;
+			}
+			let postEl = $('[component="post"][data-pid="' + issue.pid + '"]');
+			if (!postEl.length) {
+				postEl = $('[data-pid="' + issue.pid + '"]');
+			}
+			if (!postEl.length || postEl.find('[component="post/github-issue-status"]').length) {
+				return;
+			}
+			const btn = buildPostButton(issue, stateLabels);
+			if (!btn) {
+				return;
+			}
+			const replyBtn = postEl.find('[component="post/reply"]');
+			if (replyBtn.length) {
+				replyBtn.before(btn);
+			} else {
+				const postActions = postEl.find('[component="post/actions"]');
+				if (postActions.length) {
+					postActions.prepend(btn);
+				} else {
+					const postTools = postEl.find('.post-tools');
+					if (postTools.length) {
+						postTools.prepend(btn);
+					}
+				}
+			}
+		});
 	}
 
 	function placePanel(panel) {
@@ -143,6 +213,10 @@ $(document).ready(function () {
 		panel.addClass('card card-body p-3 mb-3');
 		$('[component="topic"]').first().before(panel);
 	}
+
+	$(document).on('click', '[component="post/github-issue-status"]', function (e) {
+		e.stopPropagation();
+	});
 
 	$(document).on('click', '[component="post/github-issue"]', function (e) {
 		e.preventDefault();
