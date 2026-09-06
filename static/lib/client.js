@@ -7,6 +7,20 @@ $(document).ready(function () {
 	window.__githubIssueBound = true;
 
 	$(window).on('action:ajaxify.end', renderTopicIssues);
+	socket.on('event:github-issue.created', function (data) {
+		if (!data || !data.issue || !ajaxify.data || ajaxify.data.template.name !== 'topic') {
+			return;
+		}
+		if (parseInt(ajaxify.data.tid, 10) !== parseInt(data.tid, 10)) {
+			return;
+		}
+		const issues = ajaxify.data.githubIssues || [];
+		if (issues.some(function (issue) { return issue.pid === data.issue.pid; })) {
+			return;
+		}
+		ajaxify.data.githubIssues = issues.concat(data.issue);
+		renderTopicIssues();
+	});
 	if (window.ajaxify && ajaxify.data) {
 		renderTopicIssues();
 	}
@@ -316,8 +330,11 @@ $(document).ready(function () {
 					}
 					dialog.modal('hide');
 					if (ajaxify.data && ajaxify.data.template.name === 'topic') {
-						ajaxify.data.githubIssues = (ajaxify.data.githubIssues || []).concat(result);
-						renderTopicIssues();
+						const issues = ajaxify.data.githubIssues || [];
+						if (!issues.some(function (issue) { return issue.pid === result.pid; })) {
+							ajaxify.data.githubIssues = issues.concat(result);
+							renderTopicIssues();
+						}
 					}
 					alerts.alert({
 						type: 'success',

@@ -11,6 +11,7 @@ const translator = require.main.require('./src/translator');
 const routeHelpers = require.main.require('./src/routes/helpers');
 const SocketPlugins = require.main.require('./src/socket.io/plugins');
 const SocketAdmin = require.main.require('./src/socket.io/admin');
+const websockets = require.main.require('./src/socket.io');
 
 const plugin = {};
 
@@ -180,7 +181,7 @@ plugin.init = async function ({ router }) {
 			if (tid) {
 				await db.sortedSetAdd(TID_KEY_PREFIX + tid, timestamp, pid);
 			}
-			return {
+			const result = {
 				url: issue.html_url,
 				number: issue.number,
 				title: issue.title || title,
@@ -189,6 +190,10 @@ plugin.init = async function ({ router }) {
 				state: 'open',
 				stateReason: '',
 			};
+			if (tid) {
+				websockets.in(`topic_${tid}`).emit('event:github-issue.created', { tid: tid, issue: result });
+			}
+			return result;
 		},
 		findDuplicates: async (socket, data) => {
 			if (!socket.uid) {
