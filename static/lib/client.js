@@ -15,7 +15,25 @@ $(document).ready(function () {
 			renderPostIssues();
 		}
 	});
+	socket.on('event:github-issue.created', function (data) {
+		if (!data || !data.issue || !ajaxify.data || !ajaxify.data.template || ajaxify.data.template.name !== 'topic') {
+			return;
+		}
+		if (parseInt(ajaxify.data.tid, 10) !== parseInt(data.tid, 10)) {
+			return;
+		}
+		addIssueAndRender(data.issue);
+	});
 	if (window.ajaxify && ajaxify.data && ajaxify.data.template && ajaxify.data.template.name === 'topic') {
+		renderTopicIssues();
+	}
+
+	function addIssueAndRender(issue) {
+		const issues = ajaxify.data.githubIssues || [];
+		if (issues.some(function (existing) { return parseInt(existing.pid, 10) === parseInt(issue.pid, 10); })) {
+			return;
+		}
+		ajaxify.data.githubIssues = issues.concat(issue);
 		renderTopicIssues();
 	}
 
@@ -460,8 +478,7 @@ $(document).ready(function () {
 					}
 					dialog.modal('hide');
 					if (ajaxify.data && ajaxify.data.template && ajaxify.data.template.name === 'topic') {
-						ajaxify.data.githubIssues = (ajaxify.data.githubIssues || []).concat(result);
-						renderTopicIssues();
+						addIssueAndRender(result);
 					}
 					alerts.alert({
 						type: 'success',
