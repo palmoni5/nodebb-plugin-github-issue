@@ -1,7 +1,7 @@
 {
   "id": "nodebb-plugin-github-issue",
   "name": "GitHub Issue from Post",
-  "description": "Adds a post-menu button that opens a GitHub issue from the post content, with a write-only token, token expiry tracking and admin notifications",
+  "description": "Adds a post-menu button that opens a GitHub issue from the post content, and notifies the post author when the issue is closed, reopened, renamed or commented on",
   "url": "https://github.com/palmoni5/nodebb-plugin-github-issue",
   "library": "./library.js",
   "languages": "./languages",

@@ -11,6 +11,7 @@ Adds an "Open GitHub issue" item to the post options menu. Authorized users can 
 - **Token expiry** — when saving the token, set a validity period in days (free text) or leave empty for no expiry. Administrators receive a notification 10 days before expiry and again when the token expires; issue creation is blocked while expired.
 - **Topic sidebar** — every topic shows a sidebar panel listing the issues that were opened from its posts, each linking to the issue on GitHub and back to the originating post. Each issue shows a live status icon like on GitHub itself (green = open, purple check = closed, grey = closed as not planned); the status is fetched from GitHub server-side with the configured token and cached for 10 minutes. Visible only to users holding the plugin's privilege (or to all logged-in users if enabled in the plugin settings); it appears in the theme's sticky topic sidebar (large screens) or, on themes without one, in the widget sidebar area.
 - **Post issue status icon** — posts that have an associated GitHub issue show a live status icon (open, closed, or closed as not planned) right next to the post's reply button with GitHub's exact Octicons and colors, linking directly to the issue on GitHub with an informative tooltip.
+- **Issue update notifications** — the author of the post an issue was opened from gets a forum notification when the issue is closed, reopened, renamed, commented on, labeled, assigned or added to a milestone. Which of those are sent is chosen per event in the ACP. See [Receiving updates from GitHub](#receiving-updates-from-github).
 - **Permissions** — uses NodeBB's regular global privileges: grant the "Open GitHub issue from post" privilege (Manage → Privileges → Global Privileges, under the *other* section) to groups or individual users. Users also need read access to the post. Administrators always have it.
 
 ## Setup
@@ -20,6 +21,31 @@ Adds an "Open GitHub issue" item to the post options menu. Authorized users can 
 3. Grant the privilege in Manage → Privileges → Global Privileges.
 
 The token needs the `issues: write` (fine-grained) or `repo`/`public_repo` (classic) scope.
+
+## Receiving updates from GitHub
+
+Out of the box the plugin only *sends* to GitHub; to learn what happens to an issue afterwards it needs one of the two channels below. Both can be enabled at once — every notification is keyed by the GitHub event it describes, so an event observed by both channels is still only notified about once.
+
+Which events produce a notification is configured in the ACP under *Notifications*. The recipient is the author of the post the issue was opened from — whoever pressed the button can already watch the issue on GitHub. An author who has since lost read access to the post is skipped.
+
+### Webhook (recommended)
+
+Instant, costs no API quota, and keeps working after the issue-creation token expires.
+
+1. In the ACP, set a **webhook secret** (a long random string) and copy the **payload URL** shown above it.
+2. In the repository: *Settings → Webhooks → Add webhook*.
+3. Payload URL: the URL from step 1. Content type: `application/json`. Secret: the same secret.
+4. Under "Let me select individual events", tick **Issues** and **Issue comments**.
+
+Deliveries are authenticated with GitHub's `X-Hub-Signature-256` HMAC over the raw request body; unsigned or badly signed deliveries are rejected, and no delivery is accepted at all while no secret is set. This requires the forum to be reachable from the internet.
+
+### Polling
+
+For forums GitHub cannot reach. Enable it in the ACP and set an interval (default 5 minutes). The plugin asks GitHub for everything that changed since the previous run — two requests per interval regardless of how many issues are tracked, sent with `If-None-Match` so unchanged results cost no rate limit at all.
+
+Polling detects closing (including the reason), reopening, renaming and new comments. Label, assignee and milestone changes are only visible over the webhook. The token needs read access to issues (`issues: read`), which the write-only issue-creation token does not have by itself.
+
+Polling runs only on the primary process, so a clustered forum does not notify its users several times.
 
 ## Labels with a token that has no push access
 

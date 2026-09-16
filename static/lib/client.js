@@ -24,6 +24,15 @@ $(document).ready(function () {
 		}
 		addIssueAndRender(data.issue);
 	});
+	socket.on('event:github-issue.updated', function (data) {
+		if (!data || !data.issue || !ajaxify.data || !ajaxify.data.template || ajaxify.data.template.name !== 'topic') {
+			return;
+		}
+		if (parseInt(ajaxify.data.tid, 10) !== parseInt(data.tid, 10)) {
+			return;
+		}
+		updateIssueAndRender(data.issue);
+	});
 	if (window.ajaxify && ajaxify.data && ajaxify.data.template && ajaxify.data.template.name === 'topic') {
 		renderTopicIssues();
 	}
@@ -34,6 +43,21 @@ $(document).ready(function () {
 			return;
 		}
 		ajaxify.data.githubIssues = issues.concat(issue);
+		renderTopicIssues();
+	}
+
+	function updateIssueAndRender(issue) {
+		const issues = ajaxify.data.githubIssues;
+		if (!Array.isArray(issues)) {
+			return;
+		}
+		const index = issues.findIndex(function (existing) {
+			return parseInt(existing.pid, 10) === parseInt(issue.pid, 10);
+		});
+		if (index === -1) {
+			return addIssueAndRender(issue);
+		}
+		issues[index] = issue;
 		renderTopicIssues();
 	}
 

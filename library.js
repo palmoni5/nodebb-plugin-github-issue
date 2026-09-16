@@ -1,6 +1,7 @@
 'use strict';
 
 const winston = require.main.require('winston');
+const nconf = require.main.require('nconf');
 
 const db = require.main.require('./src/database');
 const posts = require.main.require('./src/posts');
@@ -12,35 +13,22 @@ const routeHelpers = require.main.require('./src/routes/helpers');
 const SocketPlugins = require.main.require('./src/socket.io/plugins');
 const SocketAdmin = require.main.require('./src/socket.io/admin');
 const websockets = require.main.require('./src/socket.io');
+const pubsub = require.main.require('./src/pubsub');
+
+const common = require('./lib/common');
+const notify = require('./lib/notify');
+const webhook = require('./lib/webhook');
+const poll = require('./lib/poll');
 
 const plugin = {};
 
-const CONFIG_KEY = 'plugin:github-issue:config';
-const PID_KEY_PREFIX = 'plugin:github-issue:pid:';
-const TID_KEY_PREFIX = 'plugin:github-issue:tid:';
-const PRIVILEGE = 'plugin-github-issue';
-const DAY_MS = 24 * 60 * 60 * 1000;
+const {
+	CONFIG_KEY, PID_KEY_PREFIX, TID_KEY_PREFIX, PRIVILEGE, DAY_MS,
+	getConfig, getExpiresAt, clearConfigCache, apiUrlFromIssueUrl,
+} = common;
 const WARN_BEFORE_DAYS = 10;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STATE_TTL_MS = 10 * 60 * 1000;
-
-let cachedConfig = null;
-
-async function getConfig() {
-	if (!cachedConfig) {
-		cachedConfig = await db.getObject(CONFIG_KEY) || {};
-	}
-	return cachedConfig;
-}
-
-function getExpiresAt(config) {
-	const days = parseInt(config.expiryDays, 10);
-	const setAt = parseInt(config.tokenSetAt, 10);
-	if (!config.token || !days || days <= 0 || !setAt) {
-		return 0;
-	}
-	return setAt + (days * DAY_MS);
-}
 
 async function buildStatus() {
 	const config = await getConfig();
@@ -58,12 +46,38 @@ async function buildStatus() {
 		expiresAtDate: expiresAt ? new Date(expiresAt).toISOString().slice(0, 10) : '',
 		daysLeft: expiresAt ? Math.max(0, Math.ceil((expiresAt - now) / DAY_MS)) : 0,
 		expired: !!expiresAt && now >= expiresAt,
+		webhookUrl: nconf.get('url') + webhook.ROUTE,
+		webhookSecretSet: !!config.webhookSecret,
+		notifyEvents: common.NOTIFY_EVENTS.map(event => ({
+			name: event,
+			enabled: common.isNotifyEnabled(config, event),
+		})),
+		pollEnabled: poll.isEnabled(config),
+		pollMinutes: poll.getIntervalMinutes(config),
 	};
 }
+
+const CONFIG_CHANGED = 'github-issue:config-changed';
+
+function applyConfigChange() {
+	clearConfigCache();
+	poll.reschedule().catch(err => common.logError('poll rescheduling failed', err));
+}
+
+pubsub.on(CONFIG_CHANGED, applyConfigChange);
 
 plugin.init = async function ({ router }) {
 	routeHelpers.setupAdminPageRoute(router, '/admin/plugins/github-issue', async (req, res) => {
 		res.render('admin/plugins/github-issue', await buildStatus());
+	});
+
+	// no CSRF middleware: NodeBB applies it per route, and GitHub authenticates
+	// the delivery with an HMAC over the raw body instead
+	router.post(webhook.ROUTE, (req, res) => {
+		webhook.handler(req, res).catch((err) => {
+			common.logError('webhook failed', err);
+			res.sendStatus(500);
+		});
 	});
 
 	SocketAdmin.plugins.githubIssue = {
@@ -80,15 +94,37 @@ plugin.init = async function ({ router }) {
 			}
 			const config = await getConfig();
 			const newToken = typeof data.token === 'string' ? data.token.trim() : '';
+			const pollMinutesRaw = String(data.pollMinutes === undefined || data.pollMinutes === null ? '' : data.pollMinutes).trim();
+			if (pollMinutesRaw && (!/^\d+$/.test(pollMinutesRaw) || parseInt(pollMinutesRaw, 10) <= 0)) {
+				throw new Error('[[github-issue:error.invalid-interval]]');
+			}
+			const requestedEvents = Array.isArray(data.notifyEvents) ? data.notifyEvents : [];
 			const update = {
 				repo: repo,
 				labels: String(data.labels || '').trim(),
 				expiryDays: expiryRaw,
 				publicSidebar: data.publicSidebar ? 1 : 0,
+				notifyEvents: common.NOTIFY_EVENTS.filter(event => requestedEvents.includes(event)).join(','),
+				pollEnabled: data.pollEnabled ? 1 : 0,
+				pollMinutes: pollMinutesRaw,
 			};
 			if (newToken) {
 				update.token = newToken;
 				update.tokenSetAt = Date.now();
+			}
+			const newSecret = typeof data.webhookSecret === 'string' ? data.webhookSecret.trim() : '';
+			if (newSecret) {
+				update.webhookSecret = newSecret;
+			} else if (data.clearWebhookSecret) {
+				update.webhookSecret = '';
+			}
+			// a new repository has its own issue numbers and its own history:
+			// start polling it from now rather than from the old cursor
+			if (repo !== String(config.repo || '')) {
+				update.pollIssuesSince = '';
+				update.pollIssuesEtag = '';
+				update.pollCommentsSince = '';
+				update.pollCommentsEtag = '';
 			}
 			// any token/expiry change re-arms the warning notifications
 			if (newToken || expiryRaw !== String(config.expiryDays || '')) {
@@ -96,8 +132,11 @@ plugin.init = async function ({ router }) {
 				update.warnedExpired = 0;
 			}
 			await db.setObject(CONFIG_KEY, update);
-			cachedConfig = null;
-			checkExpiry().catch(err => winston.error(`[github-issue] expiry check failed: ${err.stack}`));
+			// every process caches the config, and only the primary runs the
+			// poller, so the change has to reach all of them
+			pubsub.publish(CONFIG_CHANGED);
+			applyConfigChange();
+			checkExpiry().catch(err => common.logError('expiry check failed', err));
 			return buildStatus();
 		},
 	};
@@ -183,6 +222,7 @@ plugin.init = async function ({ router }) {
 			if (tid) {
 				await db.sortedSetAdd(TID_KEY_PREFIX + tid, timestamp, pid);
 			}
+			await common.indexIssue(config.repo, issue.number, pid);
 			const result = {
 				url: issue.html_url,
 				number: issue.number,
@@ -238,13 +278,21 @@ plugin.init = async function ({ router }) {
 		},
 	};
 
-	backfillTopicIndex().catch(err => winston.error(`[github-issue] topic index backfill failed: ${err.stack}`));
+	// jobs only run on the primary process, otherwise every worker in a cluster
+	// would duplicate the notifications
+	if (!nconf.get('runJobs')) {
+		return;
+	}
+
+	backfillIndexes().catch(err => common.logError('index backfill failed', err));
+	poll.reschedule().catch(err => common.logError('poll scheduling failed', err));
 
 	setInterval(() => {
-		checkExpiry().catch(err => winston.error(`[github-issue] expiry check failed: ${err.stack}`));
+		checkExpiry().catch(err => common.logError('expiry check failed', err));
+		notify.pruneSent().catch(err => common.logError('pruning sent notifications failed', err));
 	}, CHECK_INTERVAL_MS);
 	setTimeout(() => {
-		checkExpiry().catch(err => winston.error(`[github-issue] expiry check failed: ${err.stack}`));
+		checkExpiry().catch(err => common.logError('expiry check failed', err));
 	}, 30 * 1000);
 };
 
@@ -359,13 +407,6 @@ async function findIssuesByTitle(config, title) {
 		}));
 }
 
-// the repo an issue lives in is derived from its stored URL rather than the
-// current config, so states stay correct after the target repo changes
-function apiUrlFromIssueUrl(url) {
-	const match = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)$/.exec(String(url || ''));
-	return match ? `https://api.github.com/repos/${match[1]}/issues/${match[2]}` : '';
-}
-
 async function refreshIssueStates(list) {
 	const config = await getConfig();
 	if (!config.token) {
@@ -379,31 +420,28 @@ async function refreshIssueStates(list) {
 	await Promise.all(stale.map(async (issue) => {
 		let fetched = null;
 		try {
-			const response = await fetch(apiUrlFromIssueUrl(issue.url), {
-				headers: {
-					Authorization: `Bearer ${config.token}`,
-					Accept: 'application/vnd.github+json',
-					'User-Agent': 'nodebb-plugin-github-issue',
-					'X-GitHub-Api-Version': '2022-11-28',
-				},
-			});
+			const response = await common.ghFetch(apiUrlFromIssueUrl(issue.url), { config: config });
 			if (response.ok) {
 				fetched = await response.json();
 			} else {
-				winston.warn(`[github-issue] state check for #${issue.number} returned ${response.status}`);
+				common.logWarn(`state check for #${issue.number} returned ${response.status}`);
 			}
 		} catch (err) {
-			winston.warn(`[github-issue] state check for #${issue.number} failed: ${err.message}`);
+			common.logWarn(`state check for #${issue.number} failed: ${err.message}`);
 		}
-		if (fetched && fetched.state) {
-			issue.state = fetched.state;
-			issue.stateReason = fetched.state_reason || '';
-			if (fetched.title) {
-				issue.title = fetched.title;
-			}
+		if (!fetched || !fetched.state) {
+			// stamp even on failure so a broken token doesn't delay page loads
+			// with a GitHub round-trip on every visit
+			await db.setObjectField(PID_KEY_PREFIX + issue.pid, 'stateCheckedAt', now);
+			return;
 		}
-		// stamp even on failure so a broken token doesn't delay page loads
-		// with a GitHub round-trip on every visit
+		// go through the shared snapshot handler rather than writing the new
+		// state directly: otherwise a change first observed on a page load
+		// would be silently absorbed and never notified about
+		await notify.applySnapshot(issue.pid, issue, fetched);
+		issue.state = fetched.state;
+		issue.stateReason = fetched.state_reason || '';
+		issue.title = fetched.title || issue.title;
 		await db.setObject(PID_KEY_PREFIX + issue.pid, {
 			state: issue.state,
 			stateReason: issue.stateReason,
@@ -429,34 +467,45 @@ plugin.addTopicIssues = async function (data) {
 	return data;
 };
 
-// issues opened before the per-topic index existed are only keyed by pid
-async function backfillTopicIndex() {
+// issues opened before these indexes existed are only keyed by pid: the topic
+// index powers the sidebar, the issue-number index maps an incoming GitHub
+// event back to the post it came from
+async function backfillIndexes() {
 	const config = await getConfig();
-	if (parseInt(config.tidIndexBuilt, 10)) {
+	const needTopics = !parseInt(config.tidIndexBuilt, 10);
+	const needNumbers = !parseInt(config.numberIndexBuilt, 10);
+	if (!needTopics && !needNumbers) {
 		return;
 	}
 	const keys = await db.scan({ match: `${PID_KEY_PREFIX}*` });
-	let indexed = 0;
+	let topics = 0;
+	let numbers = 0;
 	for (const key of keys) {
 		const issue = await db.getObject(key);
-		if (!issue || !issue.url || parseInt(issue.tid, 10)) {
+		if (!issue || !issue.url) {
 			continue;
 		}
 		const pid = key.slice(PID_KEY_PREFIX.length);
-		const tid = parseInt(await posts.getPostField(pid, 'tid'), 10) || 0;
-		if (!tid) {
-			continue;
+		if (needTopics && !parseInt(issue.tid, 10)) {
+			const tid = parseInt(await posts.getPostField(pid, 'tid'), 10) || 0;
+			if (tid) {
+				await Promise.all([
+					db.setObjectField(key, 'tid', tid),
+					db.sortedSetAdd(TID_KEY_PREFIX + tid, parseInt(issue.timestamp, 10) || Date.now(), pid),
+				]);
+				topics += 1;
+			}
 		}
-		await Promise.all([
-			db.setObjectField(key, 'tid', tid),
-			db.sortedSetAdd(TID_KEY_PREFIX + tid, parseInt(issue.timestamp, 10) || Date.now(), pid),
-		]);
-		indexed += 1;
+		const repo = common.repoFromIssueUrl(issue.url);
+		if (needNumbers && repo && issue.number) {
+			await common.indexIssue(repo, issue.number, pid);
+			numbers += 1;
+		}
 	}
-	await db.setObjectField(CONFIG_KEY, 'tidIndexBuilt', 1);
-	cachedConfig = null;
-	if (indexed) {
-		winston.info(`[github-issue] indexed ${indexed} existing issue(s) by topic`);
+	await db.setObject(CONFIG_KEY, { tidIndexBuilt: 1, numberIndexBuilt: 1 });
+	clearConfigCache();
+	if (topics || numbers) {
+		winston.info(`[github-issue] indexed ${topics} issue(s) by topic and ${numbers} by issue number`);
 	}
 }
 
@@ -470,12 +519,12 @@ async function checkExpiry() {
 	if (now >= expiresAt && !parseInt(config.warnedExpired, 10)) {
 		await notifyAdmins('expired', 0, config);
 		await db.setObjectField(CONFIG_KEY, 'warnedExpired', 1);
-		cachedConfig = null;
+		clearConfigCache();
 	} else if (now < expiresAt && now >= expiresAt - (WARN_BEFORE_DAYS * DAY_MS) && !parseInt(config.warned10, 10)) {
 		const daysLeft = Math.ceil((expiresAt - now) / DAY_MS);
 		await notifyAdmins('expiring', daysLeft, config);
 		await db.setObjectField(CONFIG_KEY, 'warned10', 1);
-		cachedConfig = null;
+		clearConfigCache();
 	}
 }
 
