@@ -5,6 +5,7 @@ const nconf = require.main.require('nconf');
 
 const db = require.main.require('./src/database');
 const posts = require.main.require('./src/posts');
+const user = require.main.require('./src/user');
 const groups = require.main.require('./src/groups');
 const privileges = require.main.require('./src/privileges');
 const notifications = require.main.require('./src/notifications');
@@ -245,6 +246,12 @@ plugin.init = async function ({ router }) {
 			if (tid) {
 				websockets.in(`topic_${tid}`).emit('event:github-issue.created', { tid: tid, issue: result });
 			}
+			const actor = await user.getUserField(socket.uid, 'displayname');
+			notify.issueEvent({
+				issue: stored,
+				skipUid: socket.uid,
+				...notify.build.opened(stored, actor || '[[global:guest]]'),
+			}).catch(err => common.logError('opened notification failed', err));
 			return result;
 		},
 		findDuplicates: async (socket, data) => {
