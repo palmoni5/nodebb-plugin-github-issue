@@ -26,7 +26,11 @@ The token needs the `issues: write` (fine-grained) or `repo`/`public_repo` (clas
 
 Out of the box the plugin only *sends* to GitHub; to learn what happens to an issue afterwards it needs one of the two channels below. Both can be enabled at once — every notification is keyed by the GitHub event it describes, so an event observed by both channels is still only notified about once.
 
-Which events produce a notification is configured in the ACP under *Notifications*. The recipient is the author of the post the issue was opened from — whoever pressed the button can already watch the issue on GitHub. An author who has since lost read access to the post is skipped.
+Which events produce a notification is configured in the ACP under *Notifications*. A post can have any number of issues opened from it, and each is tracked separately.
+
+Several actions on one issue in quick succession arrive as a single notification: updates are held for a short window (60 seconds by default, configurable, 0 to disable) before being sent, and anything that still arrives separately is merged again while it is unread. The labels configured in the settings are attached by the plugin to every issue it opens, so they never produce a notification of their own.
+
+The recipient is the author of the post the issue was opened from — whoever pressed the button can already watch the issue on GitHub. An author who has since lost read access to the post is skipped.
 
 ### Webhook (recommended)
 

@@ -1,22 +1,41 @@
 {
-  "id": "nodebb-plugin-github-issue",
-  "name": "GitHub Issue from Post",
-  "description": "Adds a post-menu button that opens a GitHub issue from the post content, and notifies the post author when the issue is closed, reopened, renamed or commented on",
-  "url": "https://github.com/palmoni5/nodebb-plugin-github-issue",
-  "library": "./library.js",
-  "languages": "./languages",
-  "templates": "./templates",
-  "hooks": [
-    { "hook": "static:app.load", "method": "init" },
-    { "hook": "static:privileges.global.init", "method": "addPrivilege" },
-    { "hook": "filter:post.tools", "method": "addPostTool" },
-    { "hook": "filter:admin.header.build", "method": "addAdminNavigation" },
-    { "hook": "filter:topic.build", "method": "addTopicIssues" }
-  ],
-  "modules": {
-    "../admin/plugins/github-issue.js": "static/lib/admin.js"
-  },
-  "scripts": [
-    "static/lib/client.js"
-  ]
+	"id": "nodebb-plugin-github-issue",
+	"name": "GitHub Issue from Post",
+	"description": "Adds a post-menu button that opens a GitHub issue from the post content, and notifies the post author when the issue is closed, reopened, renamed or commented on",
+	"url": "https://github.com/palmoni5/nodebb-plugin-github-issue",
+	"library": "./library.js",
+	"languages": "./languages",
+	"templates": "./templates",
+	"hooks": [
+		{
+			"hook": "static:app.load",
+			"method": "init"
+		},
+		{
+			"hook": "static:privileges.global.init",
+			"method": "addPrivilege"
+		},
+		{
+			"hook": "filter:post.tools",
+			"method": "addPostTool"
+		},
+		{
+			"hook": "filter:admin.header.build",
+			"method": "addAdminNavigation"
+		},
+		{
+			"hook": "filter:topic.build",
+			"method": "addTopicIssues"
+		},
+		{
+			"hook": "filter:notifications.merge",
+			"method": "mergeNotifications"
+		}
+	],
+	"modules": {
+		"../admin/plugins/github-issue.js": "static/lib/admin.js"
+	},
+	"scripts": [
+		"static/lib/client.js"
+	]
 }

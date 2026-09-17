@@ -19,6 +19,7 @@ define('admin/plugins/github-issue', ['alerts'], function (alerts) {
 				expiryDays: $('#github-issue-expiry').val(),
 				publicSidebar: $('#github-issue-public-sidebar').is(':checked'),
 				notifyEvents: notifyEvents,
+				mergeSeconds: $('#github-issue-merge-seconds').val(),
 				webhookSecret: $('#github-issue-webhook-secret').val(),
 				clearWebhookSecret: $('#github-issue-webhook-secret-clear').is(':checked'),
 				pollEnabled: $('#github-issue-poll-enabled').is(':checked'),

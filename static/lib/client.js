@@ -37,9 +37,11 @@ $(document).ready(function () {
 		renderTopicIssues();
 	}
 
+	// a post can have more than one issue, so issues are identified by their own
+	// id (repo + number) rather than by the post they were opened from
 	function addIssueAndRender(issue) {
 		const issues = ajaxify.data.githubIssues || [];
-		if (issues.some(function (existing) { return parseInt(existing.pid, 10) === parseInt(issue.pid, 10); })) {
+		if (issues.some(function (existing) { return existing.id === issue.id; })) {
 			return;
 		}
 		ajaxify.data.githubIssues = issues.concat(issue);
@@ -52,7 +54,7 @@ $(document).ready(function () {
 			return;
 		}
 		const index = issues.findIndex(function (existing) {
-			return parseInt(existing.pid, 10) === parseInt(issue.pid, 10);
+			return existing.id === issue.id;
 		});
 		if (index === -1) {
 			return addIssueAndRender(issue);
@@ -196,6 +198,7 @@ $(document).ready(function () {
 			}).join('') +
 			'</svg>';
 		return $('<a component="post/github-issue-status" class="btn btn-ghost btn-sm d-inline-flex align-items-center justify-content-center" target="_blank" rel="noopener noreferrer"></a>')
+			.attr('data-issue-id', issue.id)
 			.attr('href', issue.url)
 			.attr('title', title)
 			.attr('aria-label', title)
@@ -217,7 +220,8 @@ $(document).ready(function () {
 			if (!postEl.length) {
 				postEl = $('[data-pid="' + issue.pid + '"]');
 			}
-			if (!postEl.length || postEl.find('[component="post/github-issue-status"]').length) {
+			const existing = postEl.find('[component="post/github-issue-status"][data-issue-id="' + issue.id + '"]');
+			if (!postEl.length || existing.length) {
 				return;
 			}
 			const btn = buildPostButton(issue, stateLabels);
@@ -365,15 +369,17 @@ $(document).ready(function () {
 			const defaultBody = content + '\n\n---\n' + postUrl;
 
 			const form = $('<form class="github-issue-form"></form>');
-			if (existing && existing.url) {
-				const warning = $('<div class="alert alert-warning d-flex align-items-center gap-2 mb-3"></div>');
+			if (Array.isArray(existing) && existing.length) {
+				const warning = $('<div class="alert alert-warning d-flex align-items-center flex-wrap gap-2 mb-3"></div>');
 				warning.append($('<i class="fa fa-exclamation-triangle"></i>'));
 				warning.append($('<span></span>').text(t.alreadyOpened));
-				warning.append(
-					$('<a target="_blank" rel="noopener noreferrer"></a>')
-						.attr('href', existing.url)
-						.text('#' + existing.number)
-				);
+				existing.forEach(function (issue) {
+					warning.append(
+						$('<a target="_blank" rel="noopener noreferrer"></a>')
+							.attr('href', issue.url)
+							.text('#' + issue.number)
+					);
+				});
 				form.append(warning);
 			}
 			const titleGroup = $('<div class="mb-3"></div>');

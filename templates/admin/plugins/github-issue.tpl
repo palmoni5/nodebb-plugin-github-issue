@@ -58,6 +58,11 @@
 					</div>
 					{{{ end }}}
 				</div>
+				<div class="mb-3">
+					<label class="form-label" for="github-issue-merge-seconds">{{tx("github-issue:admin.merge-seconds")}}</label>
+					<input type="text" id="github-issue-merge-seconds" class="form-control" value="{mergeSeconds}" dir="ltr" />
+					<p class="form-text">{{tx("github-issue:admin.merge-seconds-help")}}</p>
+				</div>
 
 				<hr/>
 				<h5 class="fw-bold tracking-tight">{{tx("github-issue:admin.webhook-title")}}</h5>

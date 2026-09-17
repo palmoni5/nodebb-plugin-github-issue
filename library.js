@@ -19,6 +19,7 @@ const common = require('./lib/common');
 const notify = require('./lib/notify');
 const webhook = require('./lib/webhook');
 const poll = require('./lib/poll');
+const issues = require('./lib/issues');
 
 const plugin = {};
 
@@ -55,6 +56,7 @@ async function buildStatus() {
 		})),
 		pollEnabled: poll.isEnabled(config),
 		pollMinutes: poll.getIntervalMinutes(config),
+		mergeSeconds: notify.getMergeSeconds(config),
 	};
 }
 
@@ -99,6 +101,10 @@ plugin.init = async function ({ router }) {
 			if (pollMinutesRaw && (!/^\d+$/.test(pollMinutesRaw) || parseInt(pollMinutesRaw, 10) <= 0)) {
 				throw new Error('[[github-issue:error.invalid-interval]]');
 			}
+			const mergeSecondsRaw = String(data.mergeSeconds === undefined || data.mergeSeconds === null ? '' : data.mergeSeconds).trim();
+			if (mergeSecondsRaw && !/^\d+$/.test(mergeSecondsRaw)) {
+				throw new Error('[[github-issue:error.invalid-merge]]');
+			}
 			const requestedEvents = Array.isArray(data.notifyEvents) ? data.notifyEvents : [];
 			const update = {
 				repo: repo,
@@ -108,6 +114,7 @@ plugin.init = async function ({ router }) {
 				notifyEvents: common.NOTIFY_EVENTS.filter(event => requestedEvents.includes(event)).join(','),
 				pollEnabled: data.pollEnabled ? 1 : 0,
 				pollMinutes: pollMinutesRaw,
+				mergeSeconds: mergeSecondsRaw,
 			};
 			if (newToken) {
 				update.token = newToken;
@@ -209,29 +216,31 @@ plugin.init = async function ({ router }) {
 			const issue = await response.json();
 			const tid = parseInt(await posts.getPostField(pid, 'tid'), 10) || 0;
 			const timestamp = Date.now();
-			await db.setObject(PID_KEY_PREFIX + pid, {
+			// make sure a post that still holds a single legacy issue keeps it
+			// once a second one is opened from the same post
+			await issues.listForPid(pid);
+			const stored = await issues.add({
+				pid: pid,
+				tid: tid,
+				uid: socket.uid,
+				repo: config.repo,
 				url: issue.html_url,
 				number: issue.number,
 				title: issue.title || title,
 				timestamp: timestamp,
-				uid: socket.uid,
-				tid: tid,
-				state: 'open',
-				stateReason: '',
-				stateCheckedAt: timestamp,
 			});
 			if (tid) {
 				await db.sortedSetAdd(TID_KEY_PREFIX + tid, timestamp, pid);
 			}
-			await common.indexIssue(config.repo, issue.number, pid);
 			const result = {
-				url: issue.html_url,
-				number: issue.number,
-				title: issue.title || title,
-				pid: parseInt(pid, 10),
-				timestamp: timestamp,
-				state: 'open',
-				stateReason: '',
+				id: stored.id,
+				url: stored.url,
+				number: stored.number,
+				title: stored.title,
+				pid: stored.pid,
+				timestamp: stored.timestamp,
+				state: stored.state,
+				stateReason: stored.stateReason,
 			};
 			if (tid) {
 				websockets.in(`topic_${tid}`).emit('event:github-issue.created', { tid: tid, issue: result });
@@ -271,11 +280,8 @@ plugin.init = async function ({ router }) {
 			if (!allowed || !canRead) {
 				throw new Error('[[error:no-privileges]]');
 			}
-			const existing = await db.getObject(PID_KEY_PREFIX + pid);
-			if (!existing || !existing.url) {
-				return null;
-			}
-			return { url: existing.url, number: parseInt(existing.number, 10) || 0 };
+			const existing = await issues.listForPid(pid);
+			return existing.map(issue => ({ url: issue.url, number: issue.number }));
 		},
 	};
 
@@ -295,6 +301,10 @@ plugin.init = async function ({ router }) {
 	setTimeout(() => {
 		checkExpiry().catch(err => common.logError('expiry check failed', err));
 	}, 30 * 1000);
+};
+
+plugin.mergeNotifications = async function (data) {
+	return notify.mergeNotifications(data);
 };
 
 plugin.addPrivilege = async function (data) {
@@ -340,25 +350,19 @@ async function getTopicIssues(tid) {
 	if (!pids.length) {
 		return [];
 	}
-	const issues = await db.getObjects(pids.map(pid => PID_KEY_PREFIX + pid));
-	const list = issues.map((issue, i) => {
-		if (!issue || !issue.url) {
-			return null;
-		}
-		return {
-			pid: parseInt(pids[i], 10),
-			url: issue.url,
-			number: parseInt(issue.number, 10) || 0,
-			title: issue.title || '',
-			timestamp: parseInt(issue.timestamp, 10) || 0,
-			state: issue.state || '',
-			stateReason: issue.stateReason || '',
-			stateCheckedAt: parseInt(issue.stateCheckedAt, 10) || 0,
-		};
-	}).filter(Boolean);
+	const list = await issues.listForPids(pids);
+	list.sort((a, b) => a.timestamp - b.timestamp);
 	await refreshIssueStates(list);
-	list.forEach((issue) => { delete issue.stateCheckedAt; });
-	return list;
+	return list.map(issue => ({
+		id: issue.id,
+		pid: issue.pid,
+		url: issue.url,
+		number: issue.number,
+		title: issue.title,
+		timestamp: issue.timestamp,
+		state: issue.state,
+		stateReason: issue.stateReason,
+	}));
 }
 
 function normalizeTitle(title) {
@@ -433,22 +437,16 @@ async function refreshIssueStates(list) {
 		if (!fetched || !fetched.state) {
 			// stamp even on failure so a broken token doesn't delay page loads
 			// with a GitHub round-trip on every visit
-			await db.setObjectField(PID_KEY_PREFIX + issue.pid, 'stateCheckedAt', now);
+			await issues.update(issue.id, { stateCheckedAt: now });
 			return;
 		}
 		// go through the shared snapshot handler rather than writing the new
 		// state directly: otherwise a change first observed on a page load
 		// would be silently absorbed and never notified about
-		await notify.applySnapshot(issue.pid, issue, fetched);
-		issue.state = fetched.state;
-		issue.stateReason = fetched.state_reason || '';
-		issue.title = fetched.title || issue.title;
-		await db.setObject(PID_KEY_PREFIX + issue.pid, {
-			state: issue.state,
-			stateReason: issue.stateReason,
-			title: issue.title,
-			stateCheckedAt: now,
-		});
+		const changed = await notify.applySnapshot(issue, fetched);
+		if (!changed) {
+			await issues.update(issue.id, { stateCheckedAt: now });
+		}
 	}));
 }
 
