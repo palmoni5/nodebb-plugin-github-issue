@@ -24,6 +24,23 @@ $(document).ready(function () {
 		}
 		addIssueAndRender(data.issue);
 	});
+	// A notification of ours points at GitHub rather than at the forum, and the
+	// notification templates render the link without a target. Leaving it to
+	// navigate in place would drop the reader out of the forum, so the
+	// navigation is taken over here; NodeBB's own handler still runs and marks
+	// the notification as read.
+	$(document).on('click', '[data-nid] a[href]', function (e) {
+		if (e.which > 1 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+			return;
+		}
+		const href = this.getAttribute('href') || '';
+		if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/.test(href)) {
+			return;
+		}
+		e.preventDefault();
+		window.open(href, '_blank', 'noopener,noreferrer');
+	});
+
 	socket.on('event:github-issue.updated', function (data) {
 		if (!data || !data.issue || !ajaxify.data || !ajaxify.data.template || ajaxify.data.template.name !== 'topic') {
 			return;
