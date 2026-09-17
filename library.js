@@ -50,6 +50,7 @@ async function buildStatus() {
 		webhookSecretSet: !!config.webhookSecret,
 		notifyEvents: common.NOTIFY_EVENTS.map(event => ({
 			name: event,
+			label: `[[github-issue:admin.notify-${event}]]`,
 			enabled: common.isNotifyEnabled(config, event),
 		})),
 		pollEnabled: poll.isEnabled(config),

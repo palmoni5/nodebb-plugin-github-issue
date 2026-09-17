@@ -54,7 +54,7 @@
 					{{{ each notifyEvents }}}
 					<div class="form-check">
 						<input class="form-check-input" type="checkbox" id="github-issue-notify-{./name}" data-notify-event="{./name}" {{{ if ./enabled }}}checked{{{ end }}} />
-						<label class="form-check-label" for="github-issue-notify-{./name}">[[github-issue:admin.notify-{./name}]]</label>
+						<label class="form-check-label" for="github-issue-notify-{./name}">{{tx(./label)}}</label>
 					</div>
 					{{{ end }}}
 				</div>

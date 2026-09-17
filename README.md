@@ -43,7 +43,7 @@ Deliveries are authenticated with GitHub's `X-Hub-Signature-256` HMAC over the r
 
 For forums GitHub cannot reach. Enable it in the ACP and set an interval (default 5 minutes). The plugin asks GitHub for everything that changed since the previous run — two requests per interval regardless of how many issues are tracked, sent with `If-None-Match` so unchanged results cost no rate limit at all.
 
-Polling detects closing (including the reason), reopening, renaming and new comments. Label, assignee and milestone changes are only visible over the webhook. The token needs read access to issues (`issues: read`), which the write-only issue-creation token does not have by itself.
+Polling detects closing (including the reason), reopening, renaming and new comments. Label, assignee and milestone changes are only visible over the webhook. No extra permission is needed: the token that creates issues can already read them.
 
 Polling runs only on the primary process, so a clustered forum does not notify its users several times.
 
