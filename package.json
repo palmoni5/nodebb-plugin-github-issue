@@ -1,6 +1,6 @@
 {
   "name": "nodebb-plugin-github-issue",
-  "version": "1.10.0",
+  "version": "1.9.1",
   "description": "Adds a post-menu button that opens a GitHub issue from the post content, and notifies the post author when the issue is closed, reopened, renamed or commented on",
   "main": "library.js",
   "license": "MIT",
